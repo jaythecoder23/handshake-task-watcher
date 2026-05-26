@@ -1,0 +1,46 @@
+name: Check Handshake tasks
+
+on:
+  schedule:
+    # Every 5 minutes. GitHub may delay scheduled runs under load.
+    - cron: "*/5 * * * *"
+  workflow_dispatch:  # lets you trigger manually from the Actions tab
+
+permissions:
+  contents: write  # needed to commit seen_tasks.json back to the repo
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: handshake-check
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install --with-deps chromium
+
+      - name: Check for new tasks
+        env:
+          HANDSHAKE_AUTH_STATE: ${{ secrets.HANDSHAKE_AUTH_STATE }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python check_tasks.py
+
+      - name: Commit updated seen_tasks.json
+        if: always()
+        run: |
+          if [[ -n "$(git status --porcelain seen_tasks.json)" ]]; then
+            git config user.name "handshake-bot"
+            git config user.email "bot@users.noreply.github.com"
+            git add seen_tasks.json
+            git commit -m "Update seen tasks [skip ci]"
+            git push
+          fi
